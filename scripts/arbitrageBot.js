@@ -124,3 +124,52 @@ async function checkAndApproveTokenForTrade(srcTokenContract, userAddress, srcQt
  	return;
 }
 
+async function constructTradeParameters(tokenA, tokenB, tokenAmount) {
+	const slippageTolerance = new Percent('50', '100');
+	const pair = await Fetcher.fetchPairData(tokenA, tokenB);
+
+	const route = new Route([pair], tokenA);
+	const trade = new Trade(
+		route,
+		new TokenAmount(tokenA, tokenAmount),
+		TradeType.EXACT_INPUT
+	);
+
+	const minimumAmountOut = trade.minimumAmountOut(slippageTolerance);
+
+    console.log(`minimumAmountOut is ${minimumAmountOut.raw}`);
+
+    return {
+        amountOutMin : minimumAmountOut,
+        amountOutMinRaw : minimumAmountOut.raw,
+        value: toHex( trade.inputAmount.raw )
+    };
+}
+
+async function swap (tokenA, tokenB, userAddress, tokenAContract, dexContract){
+    const inputTokenAmount = await getTokenBalanceInBN(userAddress, tokenAContract);
+    const {amountOutMin, amountOutMinRaw, value} = await constructTradeParameters( tokenA , tokenB , inputTokenAmount);
+    console.log(`Going to swap ${ethers.utils.formatUnits(inputTokenAmount, 18)} ${tokenA.symbol} tokens for ${amountOutMinRaw} ${tokenB.symbol}`);
+
+    await checkAndApproveTokenForTrade(tokenAContract, wallet.address, inputTokenAmount, dexContract.address);
+    console.log('swapping');
+
+    const tx = await dexContract.swapExactTokensForTokens(
+    	inputTokenAmount,
+    	toHex(amountOutMinRaw),
+    	[tokenA.address, tokenB.address],
+    	userAddress,
+    	getDeadlineAfter(20),
+	 	{ gasLimit: 300000}
+    );
+
+    await printTxDetails(tx);
+    await printAccountBalance(userAddress);
+}
+
+async function printTxDetails(tx) {
+	
+    console.log(`Transaction hash: ${tx.hash}`);
+    const receipt = await tx.wait();
+    console.log(`Transaction was mined in block ${receipt.blockNumber}`);
+}
